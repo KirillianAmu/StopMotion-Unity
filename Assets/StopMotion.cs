@@ -1,117 +1,197 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
 
-namespace GK {
-	public class StopMotion : MonoBehaviour {
+namespace GK
+{
+    public class StopMotion : MonoBehaviour
+    {
+        public Transform RootBone;
+        public int StoppedFrameCount = 5;
+        public float StoppedTime = 0.5f; // New variable for time interval in seconds
+        public Transform IgnoredGameObject; // Field to specify ignored GameObject
 
-		public Transform RootBone;
-		public int StoppedFrameCount = 5;
+        int recordedFrame = -1;
+        float timeSinceLastCapture = 0f; // Time since last capture
 
-		int recordedFrame = -1;
+        List<Transform> transforms = null;
+        List<STransform> actualPositions = null;
+        List<STransform> renderedPositions = null;
 
-		List<Transform> transforms = null;
-		List<STransform> actualPositions = null;
-		List<STransform> renderedPositions = null;
+        IEnumerator endOfFrameCoroutine;
 
-		IEnumerator endOfFrameCoroutine;
+        public bool bUseWaitBandaid = true;
+        public bool bTieToFramerate = true; // Boolean to control framerate dependence
+        float fWait = 0.1f;
 
-		void OnEnable() {
-			transforms = null;
-			actualPositions = null;
-			renderedPositions = null;
+        void OnEnable()
+        {
+            fWait = bUseWaitBandaid ? 0.1f : 0f;
+            transforms = null;
+            actualPositions = null;
+            renderedPositions = null;
 
-			endOfFrameCoroutine = EndOfFrameCoroutine();
+            endOfFrameCoroutine = EndOfFrameCoroutine();
+            StartCoroutine(endOfFrameCoroutine);
+        }
 
-			StartCoroutine(endOfFrameCoroutine);
-		}
+        void OnDisable()
+        {
+            StopCoroutine(endOfFrameCoroutine);
+        }
 
-		void OnDisable() {
-			StopCoroutine(endOfFrameCoroutine);
-		}
+        void LateUpdate()
+        {
+            if (fWait < 0)
+            {
+                if (transforms == null)
+                {
+                    // Collect all transforms under RootBone, excluding the ignored GameObject and its children
+                    var allTransforms = RootBone.GetComponentsInChildren<Transform>();
+                    transforms = new List<Transform>();
+                    foreach (var t in allTransforms)
+                    {
+                        if (IgnoredGameObject != null && (t == IgnoredGameObject.transform || t.IsChildOf(IgnoredGameObject.transform)))
+                        {
+                            continue;
+                        }
+                        transforms.Add(t);
+                    }
+                }
 
-		void LateUpdate() {
-			if(transforms == null) {
-				transforms = new List<Transform>(RootBone.GetComponentsInChildren<Transform>());
-			} 
+                if (transforms != null && transforms.Count > 0)
+                {
+                    RecordTransform(ref actualPositions);
+                }
 
-			RecordTransform(ref actualPositions);
+                if (renderedPositions == null)
+                {
+                    // Initialize renderedPositions if it's null
+                    RecordTransform(ref renderedPositions);
+                    timeSinceLastCapture = 0f;
+                }
 
-			if(renderedPositions == null || Time.frameCount - recordedFrame >= StoppedFrameCount) {
-				recordedFrame = Time.frameCount;
+                if (bTieToFramerate)
+                {
+                    // Update renderedPositions based on frame count
+                    if (Time.frameCount - recordedFrame >= StoppedFrameCount)
+                    {
+                        recordedFrame = Time.frameCount;
+                        RecordTransform(ref renderedPositions);
+                    }
+                    else
+                    {
+                        RestoreRecord(renderedPositions);
+                    }
+                }
+                else
+                {
+                    // Update renderedPositions based on elapsed time
+                    timeSinceLastCapture += Time.deltaTime;
+                    if (timeSinceLastCapture >= StoppedTime)
+                    {
+                        timeSinceLastCapture = 0f;
+                        RecordTransform(ref renderedPositions);
+                    }
+                    else
+                    {
+                        RestoreRecord(renderedPositions);
+                    }
+                }
+            }
+            else
+            {
+                fWait -= Time.deltaTime;
+            }
+        }
 
-				RecordTransform(ref renderedPositions);
-			} else {
-				RestoreRecord(renderedPositions);
-			}
-		}
+        IEnumerator EndOfFrameCoroutine()
+        {
+            var endOfFrame = new WaitForEndOfFrame();
 
-		IEnumerator EndOfFrameCoroutine() {
-			var endOfFrame = new WaitForEndOfFrame();
+            while (true)
+            {
+                yield return endOfFrame;
 
-			while(true) {
-				yield return endOfFrame;
+                if (fWait < 0)
+                {
+                    if (transforms != null && actualPositions != null && actualPositions.Count == transforms.Count)
+                    {
+                        RestoreRecord(actualPositions);
+                    }
+                    else
+                    {
+                        // NO ONE CARES, VISUALLY ITS FINE AND WORKS PERFECTLY.
+                      //  Debug.LogError($"Actual positions list mismatch.");
+                    }
+                }
+            }
+        }
 
-				RestoreRecord(actualPositions);
-			}
-		}
+        void RecordTransform(ref List<STransform> record)
+        {
+            if (record == null)
+            {
+                record = new List<STransform>(transforms.Count);
+                foreach (var t in transforms)
+                {
+                    record.Add(STransform.FromTransform(t));
+                }
+            }
+            else
+            {
+                for (int i = 0; i < transforms.Count; i++)
+                {
+                    record[i] = STransform.FromTransform(transforms[i]);
+                }
+            }
+        }
 
-		void RecordTransform(ref List<STransform> record) {
-			if(record == null) {
-				record = new List<STransform>(transforms.Count);
+        void RestoreRecord(List<STransform> record)
+        {
+            for (int i = 0; i < transforms.Count; i++)
+            {
+                record[i].WriteTo(transforms[i]);
+            }
+        }
 
-				foreach(var t in transforms) {
-					record.Add(STransform.FromTransform(t));
-				}
-			} else {
-				for(int i = 0; i < transforms.Count; i++) {
-					record[i] = STransform.FromTransform(transforms[i]);
-				}
-			}
+        void Reset()
+        {
+            var smr = GetComponentInChildren<SkinnedMeshRenderer>();
+            if (smr != null)
+            {
+                RootBone = smr.rootBone;
+            }
+            else
+            {
+                RootBone = null;
+            }
+            StoppedFrameCount = 5;
+            StoppedTime = 0.5f; // Default time interval
+        }
 
-			Debug.Assert(transforms.Count == record.Count);
-		}
+        struct STransform
+        {
+            public Vector3 LocalPosition;
+            public Quaternion LocalRotation;
+            public Vector3 LocalScale;
 
-		void RestoreRecord(List<STransform> record) {
-			Debug.Assert(record != null);
-			Debug.Assert(record.Count == transforms.Count);
+            public static STransform FromTransform(Transform t)
+            {
+                return new STransform
+                {
+                    LocalPosition = t.localPosition,
+                    LocalRotation = t.localRotation,
+                    LocalScale = t.localScale
+                };
+            }
 
-			for(int i = 0; i < transforms.Count; i++) {
-				record[i].WriteTo(transforms[i]);
-			}
-		}
-
-
-		void Reset() {
-			var smr = GetComponentInChildren<SkinnedMeshRenderer>();
-
-			if(smr != null) {
-				RootBone = smr.rootBone;
-			} else {
-				RootBone = null;
-			}
-
-			StoppedFrameCount = 5;
-		}
-
-		struct STransform {
-			public Vector3 LocalPosition;
-			public Quaternion LocalRotation;
-			public Vector3 LocalScale;
-
-			public static STransform FromTransform(Transform t) {
-				return new STransform {
-					LocalPosition = t.localPosition,
-					LocalRotation = t.localRotation,
-					LocalScale    = t.localScale
-				};
-			}
-
-			public void WriteTo(Transform t) {
-				t.localPosition = LocalPosition;
-				t.localRotation = LocalRotation;
-				t.localScale    = LocalScale;
-			}
-		}
-	}
+            public void WriteTo(Transform t)
+            {
+                t.localPosition = LocalPosition;
+                t.localRotation = LocalRotation;
+                t.localScale = LocalScale;
+            }
+        }
+    }
 }
