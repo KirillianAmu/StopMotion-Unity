@@ -1,9 +1,8 @@
-A simple StopMotion effect for Unity. Add the StopMotion component, set the
-"Root Bone" to whatever is the root of the thing you want to the stop motion
-effect on. You can set how many frames to skip. 
+Forked from https://github.com/OskarSigvardsson/StopMotion-Unity
 
-TODO: 
-  * Add documentation
-  * Option to use delay time instead of frame count
-  * Add ReloadTransforms function
-  * Clean up code
+- Added delayed time instead of frame count.
+- Added a boolean to delay the stop motion for a bit incase the animation somehow starts playing in the end. (Happened in my [game](https://store.steampowered.com/app/1701890/Heartless__Dreadful__Return_by_72_Hours/) in the loading screen.)
+- Added an option to ignore a specific bone/object in the rig, so for example if you have an animated camera in your rig, it could be ignored.
+
+  The license is MIT, if you got anything else to add, just shove it in there.
+  Original script by Oskar is definitely one of the best solutions for quick stop motion in Unity and I am very thankful to them.
